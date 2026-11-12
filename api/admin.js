@@ -7,7 +7,11 @@ module.exports = async (req, res) => {
   if (!CONFIG.ok) return done(res, 503, { ok: false, e: 'env', missing: CONFIG.missing });
 
   let b = null;
-  try { b = JSON.parse(await body(req)); } catch (err) { b = null; }
+  try { b = JSON.parse(await body(req)); }
+  catch (err) {
+    if (err && err.code === 'BODY_TOO_LARGE') return done(res, 413, { ok: false, e: 'size' });
+    b = null;
+  }
   if (!b || typeof b !== 'object') return done(res, 400, { ok: false, e: 'body' });
 
   const action = String(b.action || '');
@@ -102,7 +106,18 @@ async function sbDel(path) {
 function body(req) {
   return new Promise((ok, no) => {
     let d = '';
-    req.on('data', c => { d += c; if (d.length > 200000) no(new Error('big')); });
+    let rejected = false;
+    req.on('data', c => {
+      if (rejected) return;
+      d += c;
+      if (Buffer.byteLength(d, 'utf8') > 200000) {
+        rejected = true;
+        const err = new Error('body_too_large');
+        err.code = 'BODY_TOO_LARGE';
+        no(err);
+        req.resume();
+      }
+    });
     req.on('end', () => ok(d));
     req.on('error', no);
   });

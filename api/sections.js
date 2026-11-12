@@ -13,7 +13,11 @@ module.exports = async (req, res) => {
   if (!CONFIG.ok) return done(res, 503, { ok: false, e: 'env', missing: CONFIG.missing });
 
   let b = null;
-  try { b = JSON.parse(await body(req)); } catch (err) { b = null; }
+  try { b = JSON.parse(await body(req)); }
+  catch (err) {
+    if (err && err.code === 'BODY_TOO_LARGE') return done(res, 413, { ok: false, e: 'size' });
+    b = null;
+  }
   if (!b || typeof b !== 'object') return done(res, 400, { ok: false, e: 'body' });
 
   const action = String(b.action || '');
@@ -175,11 +179,23 @@ async function expire(res, me, b) {
 }
 
 function hostOf(headers) {
+  const configured = configuredHost();
+  if (configured) return configured;
   const raw = String(headers['x-forwarded-host'] || headers.host || '').split(',')[0].trim();
   const h = raw.split(':')[0].toLowerCase();
   if (!h.includes('.') || !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(h)) return '';
   if (/^\d+(\.\d+){3}$/.test(h)) return ''; // bare IP (local run): public shorteners refuse these
   return h;
+}
+function configuredHost() {
+  const raw = String(process.env.PUBLIC_ORIGIN || process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL || '').trim();
+  if (!raw) return '';
+  try {
+    const u = new URL(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw);
+    const h = u.hostname.toLowerCase();
+    if (!h.includes('.') || !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(h)) return '';
+    return h;
+  } catch (e) { return ''; }
 }
 
 async function short(res, me, b, headers) {
@@ -232,8 +248,8 @@ async function grab(u, ms, opt) {
 async function backup(res, me) {
   if (me.role !== 'admin') return done(res, 403, { ok: false, e: 'forb' });
 
-  const users = await sb('/rest/v1/users?select=id,username,role,created_at&limit=1000');
-  const secs  = await sb('/rest/v1/sections?select=id,user_id,title,content,sub_key,slug,expires_at,sort_no,created_at&limit=2000');
+  const users = await allRows('/rest/v1/users?select=id,username,role,created_at&order=created_at.asc,id.asc');
+  const secs  = await allRows('/rest/v1/sections?select=id,user_id,title,content,sub_key,slug,expires_at,sort_no,created_at&order=created_at.asc,id.asc');
   const byId = {};
   (users || []).forEach(u => { byId[u.id] = u.username; });
 
@@ -294,14 +310,28 @@ async function restore(res, me, b) {
   } catch (e) {}
 
   let added = 0;
+  let failed = 0;
   for (let i = 0; i < clean.length; i++) {
     try {
       await sbPost('/rest/v1/sections', Object.assign({ user_id: me.id, sort_no: base + i }, clean[i]));
       added++;
-    } catch (e) {}
+    } catch (e) { failed++; }
   }
 
-  done(res, 200, { ok: true, added });
+  if (failed) return done(res, 207, { ok: false, e: 'restore_partial', added, failed, requested: clean.length });
+  done(res, 200, { ok: true, added, requested: clean.length });
+}
+
+async function allRows(path, pageSize = 500) {
+  const rows = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const sep = path.includes('?') ? '&' : '?';
+    const page = await sb(`${path}${sep}limit=${pageSize}&offset=${offset}`);
+    if (!Array.isArray(page) || !page.length) break;
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return rows;
 }
 
 function meOf(tok) {
@@ -352,7 +382,18 @@ async function sbDel(path) {
 function body(req) {
   return new Promise((ok, no) => {
     let d = '';
-    req.on('data', c => { d += c; if (d.length > BODY_LIMIT) no(new Error('big')); });
+    let rejected = false;
+    req.on('data', c => {
+      if (rejected) return;
+      d += c;
+      if (Buffer.byteLength(d, 'utf8') > BODY_LIMIT) {
+        rejected = true;
+        const err = new Error('body_too_large');
+        err.code = 'BODY_TOO_LARGE';
+        no(err);
+        req.resume();
+      }
+    });
     req.on('end', () => ok(d));
     req.on('error', no);
   });

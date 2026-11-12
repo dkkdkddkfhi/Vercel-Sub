@@ -53,7 +53,8 @@ const server = http.createServer(async (req, res) => {
 
     let f = u.pathname === '/' ? '/public/index.html' : u.pathname;
     let fp = path.join(ROOT, decodeURIComponent(f.split('?')[0]));
-    if (!fp.startsWith(ROOT)) { res.statusCode = 403; return res.end('no'); }
+    const rel = path.relative(ROOT, fp);
+    if (rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) { res.statusCode = 403; return res.end('no'); }
     if (fs.existsSync(fp) && fs.statSync(fp).isFile()) {
       res.setHeader('Content-Type', MIME[path.extname(fp)] || 'application/octet-stream');
       return fs.createReadStream(fp).pipe(res);

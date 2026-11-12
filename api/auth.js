@@ -22,19 +22,28 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return done(res, 405, { ok: false, e: 'method' });
   if (!CONFIG.ok) return done(res, 503, { ok: false, e: 'env', missing: CONFIG.missing });
 
-  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'x';
+  const forwarded = String(req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || '');
+  const ip = forwarded.split(',').map(x => x.trim()).filter(Boolean).pop() || 'x';
   if (!rateOk(ip)) {
     res.setHeader('Retry-After', '60');
     return done(res, 429, { ok: false, e: 'rate' });
   }
 
   let b = null;
-  try { b = JSON.parse(await body(req)); } catch (err) { b = null; }
+  try { b = JSON.parse(await body(req)); }
+  catch (err) {
+    if (err && err.code === 'BODY_TOO_LARGE') return done(res, 413, { ok: false, e: 'size' });
+    b = null;
+  }
   if (!b || typeof b !== 'object') return done(res, 400, { ok: false, e: 'body' });
 
   const action = String(b.action || '');
   const user   = String(b.u || '').trim().toLowerCase();
   const pass   = String(b.p || '');
+  if (action === 'login' && !rateOk('user:' + user)) {
+    res.setHeader('Retry-After', '60');
+    return done(res, 429, { ok: false, e: 'rate' });
+  }
 
   try {
     if (action === 'login')     return await login(res, user, pass);
@@ -249,7 +258,18 @@ async function sbDel(path) {
 function body(req) {
   return new Promise((ok, no) => {
     let d = '';
-    req.on('data', c => { d += c; if (d.length > 500000) no(new Error('big')); });
+    let rejected = false;
+    req.on('data', c => {
+      if (rejected) return;
+      d += c;
+      if (Buffer.byteLength(d, 'utf8') > 500000) {
+        rejected = true;
+        const err = new Error('body_too_large');
+        err.code = 'BODY_TOO_LARGE';
+        no(err);
+        req.resume();
+      }
+    });
     req.on('end', () => ok(d));
     req.on('error', no);
   });

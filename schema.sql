@@ -54,6 +54,26 @@ create unique index if not exists sections_slug_uq
 create index if not exists sections_user_sort_idx
   on public.sections (user_id, sort_no, created_at);
 
+-- Enforce the per-user limit in the database as well as in the API.
+-- The advisory lock makes the count safe when two inserts arrive together.
+create or replace function public.enforce_sections_limit()
+returns trigger
+language plpgsql
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(NEW.user_id::text, 0));
+  if (select count(*) from public.sections where user_id = NEW.user_id) >= 200 then
+    raise exception 'section_limit_reached' using errcode = 'check_violation';
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists sections_limit_before_insert on public.sections;
+create trigger sections_limit_before_insert
+before insert on public.sections
+for each row execute function public.enforce_sections_limit();
+
 -- The API uses the server-side service-role key. Keep direct client access closed.
 alter table public.users enable row level security;
 alter table public.sessions enable row level security;

@@ -873,6 +873,7 @@
 <script>
 var $=function(s){return document.querySelector(s)};
 var LS=window.localStorage;
+var SS=window.sessionStorage;
 var SHC={};try{SHC=JSON.parse(LS.getItem('p_sh')||'{}')||{}}catch(e){SHC={}}
 function shCache(k,v){if(v){SHC[k]=v;try{LS.setItem('p_sh',JSON.stringify(SHC))}catch(e){}return v}return SHC[k]||''}
 var S={lang:LS.getItem('p_lang')||'fa',theme:LS.getItem('pv_theme')||'light',
@@ -891,7 +892,7 @@ var T={
   m1:'داشبورد',m2:'لیست ساب‌ها',m3:'تنظیمات',m4:'فعالیت‌ها',m5:'سرورها',m6:'پشتیبان',out:'خروج',
   s1:'بخش‌ها',s2:'کانفیگ‌ها',s3:'لینک‌ها',s4:'آخرین ذخیره',
   add:'＋ افزودن ساب جدید',empty:'هنوز سابی نیست — با ＋ اولین را بساز',
-  mk:'ساخت لینک کوتاه',cp:'کپی',rk:'تعویض آدرس',sh:'کوتاه‌سازی',qr:'QR',del:'حذف',
+  mk:'ساخت لینک کوتاه',cp:'کپی',rk:'تعویض آدرس',sh:'کوتاه‌سازی',qr:'QR',qrWarn:'ساخت QR لینک را به سرویس خارجی می‌فرستد؛ ادامه می‌دهی؟',del:'حذف',
   nl:'هنوز لینکی نیست — «ساخت لینک کوتاه» را بزن.',stT:'عنوان (اختیاری)',
   sav:'در حال ذخیره…',ok:'ذخیره شد ✓',err:'خطای ذخیره',
   dcf:'این ساب حذف شود؟',rkc:'تعویض آدرس؟ لینک قدیمی از کار می‌افتد.',
@@ -914,7 +915,7 @@ var T={
    long:'خیلی طولانی است.',
    last:'آخرین ادمین را نمی‌شود حذف/تنزل داد.',
    limit:'سقف ۲۰۰ ساب پر شده.',
-   sizeMsg:'متن خیلی بزرگ است (سقف ۲۵۶KB).',
+  sizeMsg:'متن خیلی بزرگ است (سقف ۲۵۶KB).',restore_partial:'بازیابی ناقص بود؛ {n} مورد اضافه شد و {f} مورد ناموفق بود.',
    exists:'این نام کاربری گرفته شده.',
    loading:'در حال بارگذاری…',
    reg:'ثبت‌نام',haveAcc:'حساب داری؟ ورود',noAcc:'حساب نداری؟ ثبت‌نام',
@@ -950,7 +951,7 @@ var T={
   m1:'Dashboard',m2:'Subscriptions',m3:'Settings',m4:'Activity',m5:'Servers',m6:'Backup',out:'Logout',
   s1:'Sections',s2:'Configs',s3:'Links',s4:'Last save',
   add:'＋ Add new sub',empty:'No subs yet — hit ＋ to create the first',
-  mk:'Create short link',cp:'Copy',rk:'Reset link',sh:'Shorten',qr:'QR',del:'Delete',
+  mk:'Create short link',cp:'Copy',rk:'Reset link',sh:'Shorten',qr:'QR',qrWarn:'Creating the QR sends this subscription link to an external service. Continue?',del:'Delete',
   nl:'No link yet — hit Create short link.',stT:'Title (optional)',
   sav:'Saving…',ok:'Saved ✓',err:'Save failed',
   dcf:'Delete this sub?',rkc:'Reset link? The old one dies.',
@@ -973,7 +974,7 @@ var T={
    long:'Too long.',
    last:'Cannot remove/demote the last admin.',
    limit:'200 subs limit reached.',
-   sizeMsg:'Text too big (256KB max).',
+   sizeMsg:'Text too big (256KB max).',restore_partial:'Restore was partial: {n} added, {f} failed.',
    exists:'Username taken.',
    loading:'Loading…',
    reg:'Register',haveAcc:'Have account? Login',noAcc:'No account? Register',
@@ -1015,7 +1016,7 @@ function mapErr(e){
   closed:t('closed'),rate:t('rate'),long:t('long'),last:t('last'),limit:t('limit'),
   size:t('sizeMsg'),exists:t('exists'),forb:t('edb'),done:t('edb'),old:t('en'),self:t('selfT'),
   slug_len:t('slug_len'),slug_chars:t('slug_chars'),slug_taken:t('slug_taken'),days:t('days'),
-  nolink:t('nolink'),schema:t('schema'),setup:t('setup'),host:t('host')};
+  nolink:t('nolink'),schema:t('schema'),setup:t('setup'),host:t('host'),restore_partial:t('restore_partial')};
  return M[e]||t('edb')}
 function escH(s){return String(s).replace(/[&<>"']/g,function(c){
  return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -1228,14 +1229,14 @@ async function doSetup(){
  else lmsg(t('edb'))}
 function enter(j){
  S.sess=j.s;S.role=j.role;S.user=j.u;
- LS.setItem('p_s',j.s);LS.setItem('p_r',j.role);LS.setItem('p_u',j.u);
+  SS.setItem('p_s',j.s);SS.setItem('p_r',j.role);SS.setItem('p_u',j.u);
  $('#loginView').classList.add('hide');$('#appView').classList.remove('hide');
  var _ab=$('#authBg');if(_ab)_ab.style.display='none';
  go('dash');applyLang();load();
   logAdd('info',{m:'login',u:S.user})}
 async function doOut(){
  if(S.sess)await api('/api/auth',{action:'logout',s:S.sess});
- ['p_s','p_r','p_u'].forEach(function(k){LS.removeItem(k)});
+ ['p_s','p_r','p_u'].forEach(function(k){SS.removeItem(k)});
  S.sess=S.role=S.user=null;S.secs=[];
  $('#appView').classList.add('hide');$('#loginView').classList.remove('hide');
  var _ab2=$('#authBg');if(_ab2)_ab2.style.display='';
@@ -1435,6 +1436,7 @@ function bindSec(sec){
   var li=$('#li-'+id);if(!li.value)return;
   var qb=$('#qb-'+id);
   if(!qb.classList.contains('hide')){qb.classList.add('hide');return}
+  if(!confirm(t('qrWarn')))return;
   $('#qi-'+id).src='https://api.qrserver.com/v1/create-qr-code/?size=180x180&data='+encodeURIComponent(li.value);
   qb.classList.remove('hide')};
  $('#dl-'+id).onclick=async function(){
@@ -1492,7 +1494,11 @@ async function bkRestore(){
  try{d=JSON.parse(txt)}catch(e){return $('#bkMsg').textContent=t('bkBad')}
  if(!d||!Array.isArray(d.sections))return $('#bkMsg').textContent=t('bkBad');
  var j=await api('/api/sections',{action:'restore',s:S.sess,data:d});
- if(!j.ok)return $('#bkMsg').textContent=mapErr(j.e);
+ if(!j.ok){
+  var rm=mapErr(j.e);
+  if(j.e==='restore_partial')rm=rm.replace('{n}',j.added||0).replace('{f}',j.failed||0);
+  return $('#bkMsg').textContent=rm;
+ }
  $('#bkMsg').textContent='';
   toast(t('bkResOk').replace('{n}',j.added));
   logAdd('ok',{m:'bkRes',n:j.added});
@@ -1589,9 +1595,9 @@ async function adminDel(id){
 try{applyAcc(LS.getItem('p_acc')||'#10b981')}catch(e){}
 applyTheme();applyLang();mkStars();loadLog();
 (function(){
- var sv=LS.getItem('p_s');
+ var sv=SS.getItem('p_s');
  if(sv){
-  S.sess=sv;S.role=LS.getItem('p_r')||'user';S.user=LS.getItem('p_u')||'';
+  S.sess=sv;S.role=SS.getItem('p_r')||'user';S.user=SS.getItem('p_u')||'';
   enter({s:S.sess,role:S.role,u:S.user})}
  else setMode('login')})();
 </script>

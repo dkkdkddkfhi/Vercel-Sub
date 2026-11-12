@@ -12,7 +12,7 @@ const db = {
 function parseQ(search) {
   const p = new URLSearchParams(search);
   const filters = [], order = [];
-  let limit = 0;
+  let limit = 0, offset = 0;
   for (const [k, v] of p) {
     if (k === 'select') continue;
     if (k === 'order') {
@@ -23,10 +23,11 @@ function parseQ(search) {
       continue;
     }
     if (k === 'limit') { limit = parseInt(v, 10) || 0; continue; }
+    if (k === 'offset') { offset = parseInt(v, 10) || 0; continue; }
     const m = String(v).match(/^(eq|neq)\.(.*)$/s);
     if (m) filters.push({ f: k, op: m[1], v: decodeURIComponent(m[2]) });
   }
-  return { filters, order, limit };
+  return { filters, order, limit, offset };
 }
 
 function match(row, filters) {
@@ -38,7 +39,7 @@ function match(row, filters) {
 
 function tableHandler(table) {
   return async (req, res, search) => {
-    const { filters, order, limit } = parseQ(search);
+    const { filters, order, limit, offset } = parseQ(search);
     res.setHeader('Content-Type', 'application/json');
     if (req.method === 'GET') {
       let rows = db[table].filter(r => match(r, filters));
@@ -50,6 +51,7 @@ function tableHandler(table) {
         }
         return 0;
       });
+      if (offset > 0) rows = rows.slice(offset);
       if (limit > 0) rows = rows.slice(0, limit);
       res.end(JSON.stringify(rows));
     } else if (req.method === 'POST') {
